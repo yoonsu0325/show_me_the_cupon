@@ -48,29 +48,11 @@ public class BaseExceptionHandler {
         return BaseResponse.onFailure(BaseResponseStatus.INVALID_REQUEST);
     }
 
-    /* 파일 용량 초과 */
-    @ExceptionHandler({MaxUploadSizeExceededException.class, MultipartException.class})
-    public BaseResponse<Void> handleMaxUploadSize(Exception e) {
-        writeLog(BaseResponseStatus.PAYLOAD_TOO_LARGE, e);
-        return BaseResponse.onFailure(BaseResponseStatus.PAYLOAD_TOO_LARGE);
-    }
-
     /* 서버 내부 오류 */
     @ExceptionHandler(Exception.class)
     protected BaseResponse<Void> handleRuntimeException(Exception e) {
         writeLog(BaseResponseStatus.INTERNAL_SERVER_ERROR, e);
         return BaseResponse.onFailure(BaseResponseStatus.INTERNAL_SERVER_ERROR);
-    }
-
-    @ExceptionHandler(IllegalStateException.class)
-    public ResponseEntity<BaseResponse<Void>> handleIllegalState(IllegalStateException ex) {
-        String msg = ex.getMessage();
-        if (msg != null && msg.contains("exceeds its maximum permitted size")) {
-            log.warn("Multipart size exceeded (IllegalState): {}", msg);
-            return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
-                    .body(BaseResponse.onFailure(BaseResponseStatus.PAYLOAD_TOO_LARGE));
-        }
-        throw ex; // 업로드 초과 케이스가 아니면 기존 흐름 유지
     }
 
     private void writeLog(BaseResponseStatus status, Exception e) {
