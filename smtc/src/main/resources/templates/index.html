@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Coupon System</title>
+</head>
+<body>
+<h1>선착순 쿠폰 발급 시스템</h1>
+
+<div th:if="${isLogin}">
+    <p>
+        <strong th:text="${nickname}">닉네임</strong>님, 환영합니다.
+    </p>
+    <p>
+        이메일: <span th:text="${email}">user@test.com</span>
+    </p>
+
+    <form action="/logout" method="post">
+        <button type="submit">로그아웃</button>
+    </form>
+</div>
+
+<div th:unless="${isLogin}">
+    <p>로그인하지 않은 상태입니다.</p>
+
+    <a href="/signup">회원가입</a>
+    <a href="/login">로그인</a>
+</div>
+
+</body>
+</html>
