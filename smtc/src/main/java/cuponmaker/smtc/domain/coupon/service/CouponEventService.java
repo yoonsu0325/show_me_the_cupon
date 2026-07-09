@@ -58,4 +58,5 @@ public class CouponEventService {
             throw new BaseException(BaseResponseStatus.INVALID_COUPON_EVENT_PERIOD);
         }
     }
+
 }

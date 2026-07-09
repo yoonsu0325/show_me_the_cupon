@@ -1,6 +1,7 @@
 package cuponmaker.smtc.domain.issue.controller;
 
 import cuponmaker.smtc.domain.issue.dto.CouponIssueResponse;
+import cuponmaker.smtc.domain.issue.service.CouponIssueRedisService;
 import cuponmaker.smtc.domain.issue.service.CouponIssueService;
 import cuponmaker.smtc.global.security.CustomUserDetails;
 import io.swagger.v3.oas.annotations.Operation;
@@ -18,6 +19,7 @@ import java.util.List;
 public class CouponIssueController {
 
     private final CouponIssueService couponIssueService;
+    private final CouponIssueRedisService couponIssueRedisService;
 
     @Operation(summary = "쿠폰 발급 요청")
     @PostMapping("/coupon-events/{eventId}/issues")
@@ -26,6 +28,15 @@ public class CouponIssueController {
             @AuthenticationPrincipal CustomUserDetails userDetails
     ) {
         return couponIssueService.issue(eventId, userDetails.getUserId());
+    }
+
+    @Operation(summary = "Redis 기반 쿠폰 발급 요청")
+    @PostMapping("/coupon-events/{eventId}/issues/redis")
+    public CouponIssueResponse issueWithRedis(
+            @PathVariable Long eventId,
+            @AuthenticationPrincipal CustomUserDetails userDetails
+    ) {
+        return couponIssueService.issueWithRedis(eventId, userDetails.getUserId());
     }
 
     @Operation(summary = "내 쿠폰 발급 내역 조회")
@@ -44,4 +55,14 @@ public class CouponIssueController {
     ) {
         return couponIssueService.findMyIssueByEvent(eventId, userDetails.getUserId());
     }
+
+    @Operation(summary = "레디스 초기화")
+    @GetMapping("/coupon-events/{eventId}/reset-redis")
+    public void clearRedis(
+            @PathVariable Long eventId
+    ) {
+        couponIssueRedisService.clear(eventId);
+    }
 }
+
+

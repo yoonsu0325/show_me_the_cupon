@@ -65,17 +65,14 @@ public class CouponEvent extends BaseTimeEntity {
 
     public int getRemainingQuantity() {
         return totalQuantity - issuedQuantity;
-    }public void issue(LocalDateTime now) {
-        validateIssuable(now);
-
-        this.issuedQuantity++;
-
-        if (this.issuedQuantity >= this.totalQuantity) {
-            this.status = CouponEventStatus.SOLD_OUT;
-        }
     }
 
-    private void validateIssuable(LocalDateTime now) {
+    public void issue(LocalDateTime now) {
+        validateIssuable(now);
+        increaseIssuedQuantity();
+    }
+
+    public void validateIssuable(LocalDateTime now) {
         if (now.isBefore(startAt)) {
             throw new BaseException(BaseResponseStatus.COUPON_EVENT_NOT_OPEN);
         }
@@ -89,5 +86,11 @@ public class CouponEvent extends BaseTimeEntity {
         }
     }
 
+    public void increaseIssuedQuantity() {
+        this.issuedQuantity++;
 
+        if (this.issuedQuantity >= this.totalQuantity) {
+            this.status = CouponEventStatus.SOLD_OUT;
+        }
+    }
 }
