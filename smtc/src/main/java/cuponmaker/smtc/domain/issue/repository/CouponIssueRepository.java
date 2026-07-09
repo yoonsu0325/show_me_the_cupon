@@ -13,4 +13,8 @@ public interface CouponIssueRepository extends JpaRepository<CouponIssue, Long> 
     Optional<CouponIssue> findByCouponEventIdAndUserId(Long couponEventId, Long userId);
 
     List<CouponIssue> findAllByUserIdOrderByIssuedAtDesc(Long userId);
+
+    long countByCouponEventId(Long id);
+
+    long countByCouponEventIdAndUserId(Long id, Long id1);
 }
