@@ -3,6 +3,7 @@ package cuponmaker.smtc;
 import cuponmaker.smtc.domain.coupon.entity.CouponEvent;
 import cuponmaker.smtc.domain.coupon.repository.CouponEventRepository;
 import cuponmaker.smtc.domain.issue.repository.CouponIssueRepository;
+import cuponmaker.smtc.domain.issue.service.CouponInfoIssueService;
 import cuponmaker.smtc.domain.issue.service.CouponIssueRedisService;
 import cuponmaker.smtc.domain.issue.service.CouponIssueService;
 import cuponmaker.smtc.domain.user.entity.User;
@@ -14,14 +15,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.awaitility.Awaitility.await;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -44,6 +48,9 @@ class CouponIssueConcurrencyTest {
 
     @Autowired
     private CouponIssueRepository couponIssueRepository;
+
+    @Autowired
+    private CouponInfoIssueService couponInfoIssueService;
 
     @Test
     void 동시에_여러명이_요청해도_쿠폰_수량만큼만_발급된다() throws InterruptedException {
@@ -278,5 +285,94 @@ class CouponIssueConcurrencyTest {
         assertThat(issueCount).isEqualTo(1);
         assertThat(reservedCount).isEqualTo(1);
         assertThat(issuedCount).isEqualTo(1);
+    }
+
+    @Test
+    void rabbitmq_비동기_쿠폰_동시_발급_테스트() throws InterruptedException {
+        int totalQuantity = 100;
+        int requestCount = 500;
+
+        CouponEvent event = couponEventRepository.save(
+                new CouponEvent(
+                        "RabbitMQ 테스트 쿠폰",
+                        "RabbitMQ 비동기 동시성 테스트",
+                        totalQuantity,
+                        30,
+                        LocalDateTime.now().minusMinutes(1),
+                        LocalDateTime.now().plusDays(1)
+                )
+        );
+
+        couponIssueRedisService.clear(event.getId());
+
+        couponInfoIssueService.saveIssueInfo(
+                event.getId(),
+                event.getStartAt(),
+                event.getEndAt()
+        );
+
+        couponIssueRedisService.initializeStock(
+                event.getId(),
+                event.getTotalQuantity(),
+                event.getEndAt()
+        );
+
+        List<User> users = new ArrayList<>();
+        for (int i = 0; i < requestCount; i++) {
+            users.add(userRepository.save(
+                    new User(
+                            "async-user" + i + "@test.com",
+                            "password",
+                            "async-user" + i
+                    )
+            ));
+        }
+        AtomicInteger acceptedCount = new AtomicInteger();
+        AtomicInteger failedCount = new AtomicInteger();
+
+        ExecutorService executorService = Executors.newFixedThreadPool(32);
+        CountDownLatch latch = new CountDownLatch(requestCount);
+
+        for (int i = 0; i < requestCount; i++) {
+            Long userId = users.get(i).getId();
+
+            executorService.submit(() -> {
+                try {
+                    couponIssueService.issueAsync(event.getId(), userId);
+                    acceptedCount.incrementAndGet();
+                } catch (Exception e) {
+                    failedCount.incrementAndGet();
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+
+        latch.await();
+
+        System.out.println("accepted = " + acceptedCount.get());
+        System.out.println("failed = " + failedCount.get());
+
+        await()
+                .atMost(Duration.ofSeconds(10))
+                .pollInterval(Duration.ofMillis(200))
+                .untilAsserted(() -> {
+                    long issueCount = couponIssueRepository.countByCouponEventId(event.getId());
+
+                    entityManager.clear();
+
+                    CouponEvent savedEvent = couponEventRepository.findById(event.getId())
+                            .orElseThrow();
+
+                    Long remainingStock = couponIssueRedisService.getRemainingStock(event.getId());
+                    Long issuedCount = couponIssueRedisService.getIssuedCount(event.getId());
+
+                    System.out.println("issued : " + issueCount + "  remain : "+ remainingStock + "  total : " + totalQuantity);
+
+                    assertThat(issueCount).isEqualTo(totalQuantity);
+                    assertThat(savedEvent.getIssuedQuantity()).isEqualTo(totalQuantity);
+                    assertThat(remainingStock).isEqualTo(0L);
+                    assertThat(issuedCount).isEqualTo(totalQuantity);
+                });
     }
 }

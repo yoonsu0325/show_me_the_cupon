@@ -1,5 +1,6 @@
 package cuponmaker.smtc.domain.issue.controller;
 
+import cuponmaker.smtc.domain.issue.dto.CouponIssueAcceptedResponse;
 import cuponmaker.smtc.domain.issue.dto.CouponIssueResponse;
 import cuponmaker.smtc.domain.issue.service.CouponIssueRedisService;
 import cuponmaker.smtc.domain.issue.service.CouponIssueService;
@@ -37,6 +38,15 @@ public class CouponIssueController {
             @AuthenticationPrincipal CustomUserDetails userDetails
     ) {
         return couponIssueService.issueWithRedis(eventId, userDetails.getUserId());
+    }
+
+    @Operation(summary = "RabbitMQ 기반 비동기 쿠폰 발급 요청")
+    @PostMapping("/coupon-events/{eventId}/issues/async")
+    public CouponIssueAcceptedResponse issueAsync(
+            @PathVariable Long eventId,
+            @AuthenticationPrincipal CustomUserDetails userDetails
+    ) {
+        return couponIssueService.issueAsync(eventId, userDetails.getUserId());
     }
 
     @Operation(summary = "내 쿠폰 발급 내역 조회")

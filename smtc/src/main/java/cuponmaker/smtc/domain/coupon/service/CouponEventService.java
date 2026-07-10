@@ -5,6 +5,8 @@ import cuponmaker.smtc.domain.coupon.dto.CouponEventCreateRequest;
 import cuponmaker.smtc.domain.coupon.dto.CouponEventResponse;
 import cuponmaker.smtc.domain.coupon.entity.CouponEvent;
 import cuponmaker.smtc.domain.coupon.repository.CouponEventRepository;
+import cuponmaker.smtc.domain.issue.service.CouponInfoIssueService;
+import cuponmaker.smtc.domain.issue.service.CouponIssueRedisService;
 import cuponmaker.smtc.global.exception.BaseException;
 import cuponmaker.smtc.global.response.BaseResponseStatus;
 import lombok.RequiredArgsConstructor;
@@ -20,11 +22,11 @@ import java.util.List;
 public class CouponEventService {
 
     private final CouponEventRepository couponEventRepository;
+    private final CouponInfoIssueService couponInfoIssueService;
+    private final CouponIssueRedisService couponIssueRedisService;
 
     @Transactional
     public CouponEventResponse create(CouponEventCreateRequest request) {
-        validatePeriod(request.startAt(), request.endAt());
-
         CouponEvent couponEvent = new CouponEvent(
                 request.title(),
                 request.description(),
@@ -35,6 +37,18 @@ public class CouponEventService {
         );
 
         CouponEvent savedEvent = couponEventRepository.save(couponEvent);
+
+        couponInfoIssueService.saveIssueInfo(
+                savedEvent.getId(),
+                savedEvent.getStartAt(),
+                savedEvent.getEndAt()
+        );
+
+        couponIssueRedisService.initializeStock(
+                savedEvent.getId(),
+                savedEvent.getTotalQuantity(),
+                savedEvent.getEndAt()
+        );
 
         return CouponEventResponse.from(savedEvent);
     }
