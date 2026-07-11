@@ -1,6 +1,7 @@
 package cuponmaker.smtc.domain.issue.repository;
 
 import cuponmaker.smtc.domain.issue.entity.CouponIssue;
+import cuponmaker.smtc.domain.issue.entity.CouponIssueStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
@@ -17,4 +18,6 @@ public interface CouponIssueRepository extends JpaRepository<CouponIssue, Long> 
     long countByCouponEventId(Long id);
 
     long countByCouponEventIdAndUserId(Long id, Long id1);
+
+    long countByStatus(CouponIssueStatus couponIssueStatus);
 }

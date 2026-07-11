@@ -42,6 +42,7 @@ public class SecurityConfig {
                                 "/v3/api-docs/**",
                                 "/swagger-ui.html"
                         ).permitAll()
+                        .requestMatchers("/api/load-test/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/coupon-events/**").permitAll()
                         .anyRequest().authenticated()
 

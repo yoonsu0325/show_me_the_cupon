@@ -61,4 +61,14 @@ public class CouponIssue extends BaseTimeEntity {
         this.issuedAt = issuedAt;
         this.expiresAt = expiresAt;
     }
+
+    public void expire(LocalDateTime now) {
+        if (this.status == CouponIssueStatus.ISSUED && this.expiresAt.isBefore(now)) {
+            this.status = CouponIssueStatus.EXPIRED;
+        }
+    }
+
+    public void changeStatusForTest(CouponIssueStatus status) {
+        this.status = status;
+    }
 }
