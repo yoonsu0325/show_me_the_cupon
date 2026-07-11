@@ -16,31 +16,17 @@ import java.time.LocalDateTime;
 public class CouponIssueRedisService {
 
     private final StringRedisTemplate redisTemplate;
-    private static final long ROLLBACK_MARKER_TTL_SECONDS = 60 * 60 * 24; // 이벤트 기간 + 버퍼 고려해서 조정
 
-    public void reserve(Long eventId, Long userId, int totalQuantity) {
-
-        String userKey = getUserKey(eventId);
-        String reservedCountKey = getReservedCountKey(eventId);
-        Long added = redisTemplate.opsForSet()
-                .add(userKey, String.valueOf(userId));
-
-        if (added == null || added == 0) {
-            throw new BaseException(BaseResponseStatus.COUPON_ALREADY_ISSUED);
-        }
-
-        Long reservedCount = redisTemplate.opsForValue()
-                .increment(reservedCountKey);
-
-        if (reservedCount == null || reservedCount > totalQuantity) {
-            cancelReservation(eventId, userId);
-            throw new BaseException(BaseResponseStatus.COUPON_SOLD_OUT);
-        }
-    }
+    private static final long ROLLBACK_MARKER_TTL_SECONDS = 60 * 60 * 24;
 
     public void reserve(Long eventId, Long userId) {
         String userKey = getUserKey(eventId);
         String remainingStockKey = getRemainingStockKey(eventId);
+
+        Boolean hasStockKey = redisTemplate.hasKey(remainingStockKey);
+        if (Boolean.FALSE.equals(hasStockKey)) {
+            throw new BaseException(BaseResponseStatus.COUPON_EVENT_NOT_FOUND);
+        }
 
         Long added = redisTemplate.opsForSet()
                 .add(userKey, String.valueOf(userId));
@@ -63,35 +49,9 @@ public class CouponIssueRedisService {
         }
     }
 
-    private void rollbackUserOnly(Long eventId, Long userId) {
-        redisTemplate.opsForSet()
-                .remove(getUserKey(eventId), String.valueOf(userId));
-    }
-
-
     public void confirmIssue(Long eventId) {
         redisTemplate.opsForValue()
                 .increment(getIssuedCountKey(eventId));
-    }
-
-    public void rollbackIfNotAlready(Long eventId, Long userId) {
-        String markerKey = getRollbackMarkerKey(eventId, userId);
-
-        // SETNX: 마커가 없을 때만 SET에 성공 (true) → 최초 1회만 진입
-        Boolean firstAttempt = redisTemplate.opsForValue()
-                .setIfAbsent(markerKey, "1", Duration.ofSeconds(ROLLBACK_MARKER_TTL_SECONDS));
-
-        if (Boolean.FALSE.equals(firstAttempt)) {
-            log.warn("이미 롤백 처리된 요청, 스킵. eventId={}, userId={}", eventId, userId);
-            return;
-        }
-
-        // 최초 1회 진입 성공 시에만 실제 원복 수행
-        cancelReservation(eventId, userId);
-    }
-
-    private String getRollbackMarkerKey(Long eventId, Long userId) {
-        return "coupon:" + eventId + ":rollback:" + userId;
     }
 
     public void cancelReservation(Long eventId, Long userId) {
@@ -102,15 +62,27 @@ public class CouponIssueRedisService {
                 .remove(getUserKey(eventId), String.valueOf(userId));
     }
 
-    public Long getReservedCount(Long eventId) {
-        String value = redisTemplate.opsForValue()
-                .get(getReservedCountKey(eventId));
+    public void rollbackIfNotAlready(Long eventId, Long userId) {
+        String markerKey = getRollbackMarkerKey(eventId, userId);
 
-        if (value == null) {
-            return 0L;
+        Boolean firstAttempt = redisTemplate.opsForValue()
+                .setIfAbsent(
+                        markerKey,
+                        "1",
+                        Duration.ofSeconds(ROLLBACK_MARKER_TTL_SECONDS)
+                );
+
+        if (Boolean.FALSE.equals(firstAttempt)) {
+            log.warn("이미 롤백 처리된 요청, 스킵. eventId={}, userId={}", eventId, userId);
+            return;
         }
 
-        return Long.parseLong(value);
+        cancelReservation(eventId, userId);
+    }
+
+    private void rollbackUserOnly(Long eventId, Long userId) {
+        redisTemplate.opsForSet()
+                .remove(getUserKey(eventId), String.valueOf(userId));
     }
 
     public Long getRemainingStock(Long eventId) {
@@ -135,33 +107,15 @@ public class CouponIssueRedisService {
         return Long.parseLong(value);
     }
 
-    public void clear(Long eventId) {
+    public Long getReservedUserCount(Long eventId) {
+        Long size = redisTemplate.opsForSet()
+                .size(getUserKey(eventId));
 
-        redisTemplate.delete(getIssueInfoKey(eventId));
-        redisTemplate.delete(getRemainingStockKey(eventId));
-        redisTemplate.delete(getUserKey(eventId));
-        redisTemplate.delete(getIssuedCountKey(eventId));
+        if (size == null) {
+            return 0L;
+        }
 
-    }
-
-    private String getIssueInfoKey(Long eventId) {
-        return "coupon:" + eventId + ":issue-info";
-    }
-
-    private String getUserKey(Long eventId) {
-        return "coupon:" + eventId + ":users";
-    }
-
-    private String getReservedCountKey(Long eventId) {
-        return "coupon:" + eventId + ":reserved-count";
-    }
-
-    private String getIssuedCountKey(Long eventId) {
-        return "coupon:" + eventId + ":issued-count";
-    }
-
-    private String getRemainingStockKey(Long eventId) {
-        return "coupon:" + eventId + ":remaining-stock";
+        return size;
     }
 
     public void initializeStock(Long eventId, int totalQuantity, LocalDateTime endAt) {
@@ -180,4 +134,34 @@ public class CouponIssueRedisService {
         }
     }
 
+    public void clear(Long eventId) {
+        redisTemplate.delete(getIssueInfoKey(eventId));
+        redisTemplate.delete(getRemainingStockKey(eventId));
+        redisTemplate.delete(getUserKey(eventId));
+        redisTemplate.delete(getIssuedCountKey(eventId));
+    }
+
+    private String getIssueInfoKey(Long eventId) {
+        return "coupon:" + eventId + ":issue-info";
+    }
+
+    private String getUserKey(Long eventId) {
+        return "coupon:" + eventId + ":users";
+    }
+
+    private String getIssuedCountKey(Long eventId) {
+        return "coupon:" + eventId + ":issued-count";
+    }
+
+    private String getRemainingStockKey(Long eventId) {
+        return "coupon:" + eventId + ":remaining-stock";
+    }
+
+    private String getReservedCountKey(Long eventId) {
+        return "coupon:" + eventId + ":reserved-count";
+    }
+
+    private String getRollbackMarkerKey(Long eventId, Long userId) {
+        return "coupon:" + eventId + ":rollback:" + userId;
+    }
 }

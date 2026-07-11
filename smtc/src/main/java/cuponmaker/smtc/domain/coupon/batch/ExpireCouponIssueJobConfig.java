@@ -12,9 +12,9 @@ import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.item.ItemProcessor;
 import org.springframework.batch.item.ItemWriter;
+import org.springframework.batch.item.database.JpaCursorItemReader;
 import org.springframework.batch.item.database.JpaItemWriter;
-import org.springframework.batch.item.database.JpaPagingItemReader;
-import org.springframework.batch.item.database.builder.JpaPagingItemReaderBuilder;
+import org.springframework.batch.item.database.builder.JpaCursorItemReaderBuilder;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -46,7 +46,7 @@ public class ExpireCouponIssueJobConfig {
     public Step expireCouponIssueStep(
             JobRepository jobRepository,
             PlatformTransactionManager transactionManager,
-            JpaPagingItemReader<CouponIssue> expireCouponIssueReader,
+            JpaCursorItemReader<CouponIssue> expireCouponIssueReader,
             ItemProcessor<CouponIssue, CouponIssue> expireCouponIssueProcessor,
             ItemWriter<CouponIssue> expireCouponIssueWriter
     ) {
@@ -60,24 +60,23 @@ public class ExpireCouponIssueJobConfig {
 
     @Bean
     @StepScope
-    public JpaPagingItemReader<CouponIssue> expireCouponIssueReader(
+    public JpaCursorItemReader<CouponIssue> expireCouponIssueReader(
             @Value("#{jobParameters['now']}") String now
     ) {
         Map<String, Object> parameters = new HashMap<>();
         parameters.put("status", CouponIssueStatus.ISSUED);
         parameters.put("now", LocalDateTime.parse(now));
 
-        return new JpaPagingItemReaderBuilder<CouponIssue>()
+        return new JpaCursorItemReaderBuilder<CouponIssue>()
                 .name("expireCouponIssueReader")
                 .entityManagerFactory(entityManagerFactory)
-                .pageSize(CHUNK_SIZE)
                 .queryString("""
-                        select ci
-                        from CouponIssue ci
-                        where ci.status = :status
-                          and ci.expiresAt < :now
-                        order by ci.id asc
-                        """)
+                    select ci
+                    from CouponIssue ci
+                    where ci.status = :status
+                      and ci.expiresAt < :now
+                    order by ci.id asc
+                    """)
                 .parameterValues(parameters)
                 .build();
     }

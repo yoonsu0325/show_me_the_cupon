@@ -69,11 +69,7 @@ public class CouponIssueService {
 
         validateIssuePeriod(info, now);
 
-        couponIssueRedisService.reserve(
-                eventId,
-                userId,
-                info.totalQuantity()
-        );
+        couponIssueRedisService.reserve(eventId, userId);
 
         try {
             CouponEvent lockedEvent = couponEventRepository.findByIdForUpdate(eventId)
@@ -95,6 +91,7 @@ public class CouponIssueService {
             CouponIssue savedIssue = couponIssueRepository.save(couponIssue);
 
             lockedEvent.increaseIssuedQuantity();
+
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
@@ -119,10 +116,7 @@ public class CouponIssueService {
 
         validateIssuePeriod(issueInfo, now);
 
-        couponIssueRedisService.reserve(
-                eventId,
-                userId
-        );
+        couponIssueRedisService.reserve(eventId, userId);
 
         try {
             couponIssueProducer.send(
