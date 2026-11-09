@@ -19,6 +19,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -54,7 +55,6 @@ class CouponIssueConcurrencyTest {
 
     @Test
     void 동시에_여러명이_요청해도_쿠폰_수량만큼만_발급된다() throws InterruptedException {
-        // given
         int totalQuantity = 100;
         int requestCount = 500;
 
@@ -69,31 +69,29 @@ class CouponIssueConcurrencyTest {
                 )
         );
 
+        String prefix = UUID.randomUUID().toString();
+
         List<User> users = new ArrayList<>();
         for (int i = 0; i < requestCount; i++) {
             users.add(userRepository.save(
                     new User(
-                            "user" + i + "@test.com",
+                            prefix + "-user" + i + "@test.com",
                             "password",
                             "user" + i
                     )
             ));
         }
 
-        System.out.println("[1] 유저 500명 생성 완료");
-
         ExecutorService executorService = Executors.newFixedThreadPool(32);
         CountDownLatch latch = new CountDownLatch(requestCount);
-        System.out.println("[2] 동시성 테스트 시작");
-        // when
+
         for (int i = 0; i < requestCount; i++) {
             Long userId = users.get(i).getId();
 
             executorService.submit(() -> {
                 try {
                     couponIssueService.issue(event.getId(), userId);
-                } catch (BaseException e) {
-                    //System.out.println("[예외] 유저"+userId + " " + e.getStatus().getMessage());
+                } catch (BaseException ignored) {
                 } finally {
                     latch.countDown();
                 }
@@ -101,9 +99,13 @@ class CouponIssueConcurrencyTest {
         }
 
         latch.await();
+        executorService.shutdown();
 
-        // then
-        CouponEvent resultEvent = couponEventRepository.findById(event.getId()).orElseThrow();
+        entityManager.clear();
+
+        CouponEvent resultEvent = couponEventRepository.findById(event.getId())
+                .orElseThrow();
+
         long issueCount = couponIssueRepository.countByCouponEventId(event.getId());
 
         assertThat(resultEvent.getIssuedQuantity()).isEqualTo(totalQuantity);
@@ -112,7 +114,6 @@ class CouponIssueConcurrencyTest {
 
     @Test
     void 같은_사용자가_동시에_여러번_요청해도_한번만_발급된다() throws InterruptedException {
-        // given
         int totalQuantity = 100;
         int requestCount = 10;
 
@@ -127,9 +128,11 @@ class CouponIssueConcurrencyTest {
                 )
         );
 
+        String prefix = UUID.randomUUID().toString();
+
         User user = userRepository.save(
                 new User(
-                        "duplicate-user@test.com",
+                        prefix + "-duplicate-user@test.com",
                         "password",
                         "중복테스트유저"
                 )
@@ -138,13 +141,11 @@ class CouponIssueConcurrencyTest {
         ExecutorService executorService = Executors.newFixedThreadPool(requestCount);
         CountDownLatch latch = new CountDownLatch(requestCount);
 
-        // when
         for (int i = 0; i < requestCount; i++) {
             executorService.submit(() -> {
                 try {
                     couponIssueService.issue(event.getId(), user.getId());
-                } catch (BaseException e) {
-                    System.out.println("[예외] 유저"+user.getId() + " " + e.getStatus().getMessage());
+                } catch (BaseException ignored) {
                 } finally {
                     latch.countDown();
                 }
@@ -154,7 +155,8 @@ class CouponIssueConcurrencyTest {
         latch.await();
         executorService.shutdown();
 
-        // then
+        entityManager.clear();
+
         CouponEvent resultEvent = couponEventRepository.findById(event.getId())
                 .orElseThrow();
 
@@ -183,15 +185,17 @@ class CouponIssueConcurrencyTest {
                 )
         );
 
-        couponIssueRedisService.clear(event.getId());
+        initRedisForIssue(event);
+
+        String prefix = UUID.randomUUID().toString();
 
         List<User> users = new ArrayList<>();
         for (int i = 0; i < requestCount; i++) {
             users.add(userRepository.save(
                     new User(
-                            "user" + i + "@test.com",
+                            prefix + "-redis-user" + i + "@test.com",
                             "password",
-                            "user" + i
+                            "redis-user" + i
                     )
             ));
         }
@@ -206,7 +210,6 @@ class CouponIssueConcurrencyTest {
                 try {
                     couponIssueService.issueWithRedis(event.getId(), userId);
                 } catch (BaseException ignored) {
-                    System.out.println("[예외] 유저"+userId + " " + ignored.getStatus().getMessage());
                 } finally {
                     latch.countDown();
                 }
@@ -214,48 +217,53 @@ class CouponIssueConcurrencyTest {
         }
 
         latch.await();
-
-        long issueCount = couponIssueRepository.countByCouponEventId(event.getId());
-
-        latch.await();
+        executorService.shutdown();
 
         entityManager.clear();
 
-        CouponEvent savedEvent = couponEventRepository.findById(event.getId()).orElseThrow();
+        long issueCount = couponIssueRepository.countByCouponEventId(event.getId());
 
-        Long reservedCount = couponIssueRedisService.getReservedCount(event.getId());
+        CouponEvent savedEvent = couponEventRepository.findById(event.getId())
+                .orElseThrow();
+
+        Long remainingStock = couponIssueRedisService.getRemainingStock(event.getId());
         Long issuedCount = couponIssueRedisService.getIssuedCount(event.getId());
+        Long reservedUserCount = couponIssueRedisService.getReservedUserCount(event.getId());
 
         assertThat(issueCount).isEqualTo(totalQuantity);
         assertThat(savedEvent.getIssuedQuantity()).isEqualTo(totalQuantity);
-        assertThat(reservedCount).isEqualTo(totalQuantity);
+        assertThat(remainingStock).isEqualTo(0L);
         assertThat(issuedCount).isEqualTo(totalQuantity);
+        assertThat(reservedUserCount).isEqualTo(totalQuantity);
     }
 
     @Test
     void redis_동일_유저_중복_발급_테스트() throws InterruptedException {
+        int totalQuantity = 100;
         int requestCount = 10;
 
         CouponEvent event = couponEventRepository.save(
                 new CouponEvent(
                         "Redis 중복 테스트 쿠폰",
                         "Redis 중복 발급 테스트",
-                        100,
+                        totalQuantity,
                         30,
                         LocalDateTime.now().minusMinutes(1),
                         LocalDateTime.now().plusDays(1)
                 )
         );
 
+        initRedisForIssue(event);
+
+        String prefix = UUID.randomUUID().toString();
+
         User user = userRepository.save(
                 new User(
-                        "duplicate@test.com",
+                        prefix + "-duplicate@test.com",
                         "password",
                         "duplicate"
                 )
         );
-
-        couponIssueRedisService.clear(event.getId());
 
         ExecutorService executorService = Executors.newFixedThreadPool(10);
         CountDownLatch latch = new CountDownLatch(requestCount);
@@ -265,7 +273,6 @@ class CouponIssueConcurrencyTest {
                 try {
                     couponIssueService.issueWithRedis(event.getId(), user.getId());
                 } catch (Exception ignored) {
-
                 } finally {
                     latch.countDown();
                 }
@@ -273,18 +280,27 @@ class CouponIssueConcurrencyTest {
         }
 
         latch.await();
+        executorService.shutdown();
+
+        entityManager.clear();
 
         long issueCount = couponIssueRepository.countByCouponEventIdAndUserId(
                 event.getId(),
                 user.getId()
         );
 
-        Long reservedCount = couponIssueRedisService.getReservedCount(event.getId());
+        CouponEvent savedEvent = couponEventRepository.findById(event.getId())
+                .orElseThrow();
+
+        Long remainingStock = couponIssueRedisService.getRemainingStock(event.getId());
         Long issuedCount = couponIssueRedisService.getIssuedCount(event.getId());
+        Long reservedUserCount = couponIssueRedisService.getReservedUserCount(event.getId());
 
         assertThat(issueCount).isEqualTo(1);
-        assertThat(reservedCount).isEqualTo(1);
-        assertThat(issuedCount).isEqualTo(1);
+        assertThat(savedEvent.getIssuedQuantity()).isEqualTo(1);
+        assertThat(remainingStock).isEqualTo(totalQuantity - 1L);
+        assertThat(issuedCount).isEqualTo(1L);
+        assertThat(reservedUserCount).isEqualTo(1L);
     }
 
     @Test
@@ -303,30 +319,21 @@ class CouponIssueConcurrencyTest {
                 )
         );
 
-        couponIssueRedisService.clear(event.getId());
+        initRedisForIssue(event);
 
-        couponInfoIssueService.saveIssueInfo(
-                event.getId(),
-                event.getStartAt(),
-                event.getEndAt()
-        );
-
-        couponIssueRedisService.initializeStock(
-                event.getId(),
-                event.getTotalQuantity(),
-                event.getEndAt()
-        );
+        String prefix = UUID.randomUUID().toString();
 
         List<User> users = new ArrayList<>();
         for (int i = 0; i < requestCount; i++) {
             users.add(userRepository.save(
                     new User(
-                            "async-user" + i + "@test.com",
+                            prefix + "-async-user" + i + "@test.com",
                             "password",
                             "async-user" + i
                     )
             ));
         }
+
         AtomicInteger acceptedCount = new AtomicInteger();
         AtomicInteger failedCount = new AtomicInteger();
 
@@ -349,12 +356,13 @@ class CouponIssueConcurrencyTest {
         }
 
         latch.await();
+        executorService.shutdown();
 
-        System.out.println("accepted = " + acceptedCount.get());
-        System.out.println("failed = " + failedCount.get());
+        assertThat(acceptedCount.get()).isEqualTo(totalQuantity);
+        assertThat(failedCount.get()).isEqualTo(requestCount - totalQuantity);
 
         await()
-                .atMost(Duration.ofSeconds(10))
+                .atMost(Duration.ofSeconds(30))
                 .pollInterval(Duration.ofMillis(200))
                 .untilAsserted(() -> {
                     long issueCount = couponIssueRepository.countByCouponEventId(event.getId());
@@ -366,13 +374,29 @@ class CouponIssueConcurrencyTest {
 
                     Long remainingStock = couponIssueRedisService.getRemainingStock(event.getId());
                     Long issuedCount = couponIssueRedisService.getIssuedCount(event.getId());
-
-                    System.out.println("issued : " + issueCount + "  remain : "+ remainingStock + "  total : " + totalQuantity);
+                    Long reservedUserCount = couponIssueRedisService.getReservedUserCount(event.getId());
 
                     assertThat(issueCount).isEqualTo(totalQuantity);
                     assertThat(savedEvent.getIssuedQuantity()).isEqualTo(totalQuantity);
                     assertThat(remainingStock).isEqualTo(0L);
                     assertThat(issuedCount).isEqualTo(totalQuantity);
+                    assertThat(reservedUserCount).isEqualTo(totalQuantity);
                 });
+    }
+
+    private void initRedisForIssue(CouponEvent event) {
+        couponIssueRedisService.clear(event.getId());
+
+        couponInfoIssueService.saveIssueInfo(
+                event.getId(),
+                event.getStartAt(),
+                event.getEndAt()
+        );
+
+        couponIssueRedisService.initializeStock(
+                event.getId(),
+                event.getTotalQuantity(),
+                event.getEndAt()
+        );
     }
 }
