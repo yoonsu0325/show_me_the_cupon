@@ -15,24 +15,32 @@ spring:
     password: guest
     listener:
       simple:
-        acknowledge-mode: auto
-        retry:
-          enabled: true
-          max-attempts: 3
-          initial-interval: 1000
-          multiplier: 2.0
-          max-interval: 5000
-        default-requeue-rejected: false
+        concurrency: 20           # Consumer가 메시지를 동시에 처리할 수 있는 기본 스레드 수
+        max-concurrency: 50       # 최대 Consumer 스레드 수
+        prefetch: 50
+    # 재시도(최대 3회) / DLQ 정책은 RabbitMqConfig 의 커스텀 컨테이너 팩토리에서 설정
+    # (커스텀 rabbitListenerContainerFactory 빈이 있으면 listener.simple.* 설정은 적용되지 않음)
   data:
     redis:
       host: localhost
       port: 6379
+      lettuce:
+        pool:
+          max-active: 50          # Redis 커넥션 풀 확장
+          max-idle: 20
+          min-idle: 10
 
   datasource:
     url: jdbc:mysql://localhost:3306/coupon_db?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
     username: root
-    password: ${DATABASE_PASSWORD}
+    password: { DATABASE_PASSWORD }
     driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 50       # 기본 10개 -> 50개 이상으로 확장 (DB 스펙에 맞조 조절)
+      minimum-idle: 20
+      connection-timeout: 30000   # 커넥션 획득 대기 시간 (30초)
+      idle-timeout: 600000
+      max-lifetime: 1800000
 
   jpa:
     hibernate:
