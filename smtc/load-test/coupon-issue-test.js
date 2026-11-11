@@ -47,6 +47,8 @@ export default function () {
 
     const body = JSON.parse(res.body);
 
+    console.log(`status=${res.status}, body=${res.body}`);
+
     if (body.success === true) {
         businessSuccess.add(1);
     } else {
